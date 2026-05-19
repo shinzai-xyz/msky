@@ -1,0 +1,23 @@
+{
+  "name": "Misskey Instance Analyzer",
+  "short_name": "MissScan",
+  "description": "Misskeyインスタンスの詳細情報を解析・表示します",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#191b22",
+  "theme_color": "#86b300",
+  "icons": [
+    {
+      "src": "image/icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "image/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
