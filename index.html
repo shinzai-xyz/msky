@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Misskey Instance Analyzer</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="image/icon.png" type="image/png">
+    <link rel="apple-touch-icon" href="image/icon.png">
+    <meta name="theme-color" content="#86b300">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <style>
+        :root {
+            --primary: #86b300;
+            --accent: #eb6f92;
+            --bg: #191b22;
+            --card-bg: #22252d;
+            --text: #e0def4;
+            --border: #393f4d;
+        }
+        body {
+            font-family: 'Hiragino Kaku Gothic ProN', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+        }
+        .container { max-width: 1000px; margin: 0 auto; }
+        .search-area {
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 16px;
+            text-align: center;
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+        }
+        input {
+            width: 60%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: #111;
+            color: white;
+            font-size: 1.1rem;
+        }
+        button {
+            padding: 12px 25px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border);
+            margin-bottom: 20px;
+        }
+        .banner {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            border-radius: 12px 12px 0 0;
+            margin-top: -20px;
+            margin-left: -20px;
+            width: calc(100% + 40px);
+        }
+        h2 { color: var(--primary); border-left: 4px solid var(--primary); padding-left: 10px; font-size: 1.2rem; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px; border-bottom: 1px solid var(--border); text-align: left; font-size: 0.9rem; }
+        th { color: #999; width: 40%; }
+        
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            margin: 2px;
+            background: #444;
+        }
+        .badge.true { background: #2d5a27; color: #adffaa; }
+        .badge.false { background: #5a2727; color: #ffaaaa; }
+
+        pre { background: #000; padding: 15px; overflow-x: auto; border-radius: 8px; font-size: 0.8rem; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="search-area">
+        <h1>Misskey Instance Analyzer</h1>
+        <input type="text" id="instanceUrl" placeholder="misskey.io" value="misskey.io" onkeydown="if(event.key === 'Enter') fetchAllData()">
+        <button onclick="fetchAllData()">解析開始</button>
+        <div id="error" style="color:var(--accent); margin-top:10px;"></div>
+    </div>
+
+    <div id="loader" class="hidden" style="text-align:center;">解析中... (Meta & Statsを取得中)</div>
+
+    <div id="content" class="hidden">
+        <div class="card">
+            <img id="banner" class="banner" src="" alt="">
+            <div style="display:flex; align-items:center; gap:20px; margin-top:15px;">
+                <img id="icon" width="80" height="80" style="border-radius:12px;">
+                <div>
+                    <h1 id="name" style="margin:0"></h1>
+                    <p id="description" style="font-size:0.9rem; opacity:0.8;"></p>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>運営者情報</h2>
+                <table>
+                    <tbody id="admin-table"></tbody>
+                </table>
+            </div>
+
+            <div class="card">
+                <h2>統計 (Stats)</h2>
+                <table>
+                    <tbody id="stats-table"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>インスタンス設定・制限</h2>
+                <table>
+                    <tbody id="config-table"></tbody>
+                </table>
+            </div>
+
+            <div class="card">
+                <h2>機能の有効状態 (Features)</h2>
+                <div id="features-list" style="display:flex; flex-wrap:wrap;"></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Raw Meta Data (JSON)</h2>
+            <pre id="raw-json"></pre>
+        </div>
+    </div>
+</div>
+
+<script>
+// Service Workerの登録
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('SW registered!', reg))
+            .catch(err => console.err('SW registration failed:', err));
+    });
+}
+
+async function fetchAllData() {
+    const hostInput = document.getElementById('instanceUrl');
+    const host = hostInput.value.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const content = document.getElementById('content');
+    const loader = document.getElementById('loader');
+    const error = document.getElementById('error');
+
+    if (!host) return;
+    hostInput.blur();
+
+    loader.classList.remove('hidden');
+    content.classList.add('hidden');
+    error.innerText = '';
+
+    try {
+        const [metaRes, statsRes] = await Promise.all([
+            fetch(`https://${host}/api/meta`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ detail: true })
+            }),
+            fetch(`https://${host}/api/stats`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            })
+        ]);
+
+        if (!metaRes.ok) throw new Error('Meta情報の取得に失敗しました。');
+        const meta = await metaRes.json();
+        const stats = await statsRes.ok ? await statsRes.json() : null;
+
+        document.getElementById('banner').src = meta.bannerUrl || '';
+        document.getElementById('icon').src = meta.iconUrl || '';
+        document.getElementById('name').innerText = meta.name || host;
+        document.getElementById('description').innerText = meta.description || '';
+
+        const createRow = (label, value) => `<tr><th>${label}</th><td>${value || '不明'}</td></tr>`;
+
+        document.getElementById('admin-table').innerHTML = 
+            createRow('管理者', meta.maintainerName) +
+            createRow('連絡先', meta.maintainerEmail) +
+            createRow('バージョン', meta.version) +
+            createRow('ソフトウェア', meta.swName || 'Misskey') +
+            createRow('利用規約', meta.tosUrl ? `<a href="${meta.tosUrl}" target="_blank" style="color:var(--primary)">Link</a>` : '未設定') +
+            createRow('プライバシー', meta.privacyPolicyUrl ? `<a href="${meta.privacyPolicyUrl}" target="_blank" style="color:var(--primary)">Link</a>` : '未設定');
+
+        if (stats) {
+            document.getElementById('stats-table').innerHTML = 
+                createRow('ユーザー', stats.usersCount.toLocaleString() + ' 人') +
+                createRow('投稿総数', stats.notesCount.toLocaleString() + ' 件') +
+                createRow('ファイル数', stats.instancesCount ? stats.instancesCount.toLocaleString() + ' インスタンス' : '取得不可');
+        }
+
+        document.getElementById('config-table').innerHTML = 
+            createRow('最大文字数', (meta.maxNoteTextLength || 3000) + ' 文字') +
+            createRow('ドライブ容量(ローカル)', meta.localDriveCapacityMb + ' MB') +
+            createRow('ドライブ容量(リモート)', meta.remoteDriveCapacityMb + ' MB') +
+            createRow('新規登録', meta.disableRegistration ? '❌ 停止中' : '✅ 開放中') +
+            createRow('制限事項', meta.emailRequiredForSignup ? 'メール認証必須' : 'なし') +
+            createRow('画像URL省略', meta.cacheRemoteFiles ? '有効' : '無効') +
+            createRow('Proxy', meta.proxyRemoteFiles ? 'あり' : 'なし');
+
+        const featureBox = document.getElementById('features-list');
+        featureBox.innerHTML = '';
+        Object.keys(meta).forEach(key => {
+            if (typeof meta[key] === 'boolean') {
+                const span = document.createElement('span');
+                span.className = `badge ${meta[key]}`;
+                span.innerText = `${key}: ${meta[key]}`;
+                featureBox.appendChild(span);
+            }
+        });
+
+        document.getElementById('raw-json').innerText = JSON.stringify(meta, null, 2);
+
+        loader.classList.add('hidden');
+        content.classList.remove('hidden');
+
+    } catch (err) {
+        loader.classList.add('hidden');
+        error.innerText = 'エラーが発生しました: ' + err.message;
+    }
+}
+</script>
+
+</body>
+</html>
