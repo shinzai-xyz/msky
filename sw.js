@@ -1,4 +1,4 @@
-const CACHE_NAME = 'misskey-analyzer-v1';
+const CACHE_NAME = 'misskey-analyzer-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -15,7 +15,7 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// キャッシュがあればキャッシュから、なければネットワークから取得
+// ネットワーク優先（Network First）の処理
 self.addEventListener('fetch', (event) => {
   // APIリクエストはキャッシュしない
   if (event.request.url.includes('/api/')) {
@@ -23,8 +23,20 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    caches.match(event.request).then((response) => {
-      return response || fetch(event.request);
-    })
+    fetch(event.request)
+      .then((response) => {
+        // ネットワークからの取得が成功した場合
+        // レスポンスをクローンしてキャッシュを最新状態に更新する
+        const responseClone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, responseClone);
+        });
+        
+        return response;
+      })
+      .catch(() => {
+        // オフラインなどでネットワーク取得が失敗した場合、キャッシュから返す
+        return caches.match(event.request);
+      })
   );
 });
